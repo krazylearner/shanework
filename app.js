@@ -60,6 +60,7 @@ async.eachSeries(sources, function (source, callback) {
     var logo = scrapper.logo;
     var brand = scrapper.brand;
     var isMobile = scrapper.isMobile || false;
+    var buildImage = scrapper.buildImage || false;
     var totalSelector = scrapper.total;
     var totalPerPage = scrapper.totalPerPage;
 
@@ -101,7 +102,7 @@ async.eachSeries(sources, function (source, callback) {
 
                   logger.info("Scrapping: " + source.url);
                   logger.info("Total products found: " + total);
-                  scrapeHTML(source.url, 1, total, totalPerPage, scrapper.baseurl, category, logo, brand, selectors, true);
+                  scrapeHTML(source.url, 1, total, totalPerPage, scrapper.baseurl, category, logo, brand, selectors, buildImage, true);
                   callback(null);
               }
               else {
@@ -144,8 +145,9 @@ async.eachSeries(sources, function (source, callback) {
 
 var lastLink = '';
 
-function scrapeHTML(url, page, total, totalPerPage, baseurl, category, logo, brand, selectors, last) {
+function scrapeHTML(url, page, total, totalPerPage, baseurl, category, logo, brand, selectors, buildImage, last) {
 
+    isMobile = false;
     if (isNaN(total))
     {
       total = 0;
@@ -174,21 +176,21 @@ function scrapeHTML(url, page, total, totalPerPage, baseurl, category, logo, bra
           if (err) logger.log('warn', err);
           if (typeof output !== 'undefined') {
               logger.info("Scrapping: " + url);
-              insert(output, category, logo, brand);
+              insert(output, category, logo, brand, isMobile, buildImage);
               logger.info("Scrapping done: " + output.length + " records found");
               if (output.length > 0)
               {
                   if (output[0].link == lastLink)
                   {
-                      scrapeHTML(url, (page + 1), total, totalPerPage, baseurl, category, logo, brand, selectors, false);
+                      scrapeHTML(url, (page + 1), total, totalPerPage, baseurl, category, logo, brand, selectors, buildImage, false);
                   }
                   else {
-                      scrapeHTML(url, (page + 1), total, totalPerPage, baseurl, category, logo, brand, selectors, true);
+                      scrapeHTML(url, (page + 1), total, totalPerPage, baseurl, category, logo, brand, selectors, buildImage, true);
                   }
                   lastLink = output[0].link;
               }
               else {
-                  scrapeHTML(url, (page + 1), total, totalPerPage, baseurl, category, logo, brand, selectors, false);
+                  scrapeHTML(url, (page + 1), total, totalPerPage, baseurl, category, logo, brand, selectors, buildImage, false);
               }
 
           } else {
@@ -235,6 +237,7 @@ function scrapeJson(url, page, baseurl, category, logo, brand, selectors) {
 
 
 function scrapeHybrid(url, page, baseurl, category, logo, brand, selectors) {
+  //for pepperfry only
     var targetUrl = url.replace('{{page}}', page);
     request(targetUrl, function (err, response, data) {
         logger.info("Scrapping: " + targetUrl)
@@ -252,9 +255,9 @@ function scrapeHybrid(url, page, baseurl, category, logo, brand, selectors) {
 
                 var item = {
                     name: $(product).find(".card-body-title").text(),
-                    image: $(product).find(".card-header-img").find("a").find("img").attr('src'),
-                    price: $(product).find(".card-body-title").text(),
-                    link: baseurl + $(product).find(".card-header-img > img").attr('src')
+                    image: $(product).find(".lazy").attr('data-src'),
+                    price: $(product).find(".card-body-price").text(),
+                    link: $(product).find(".card-header").find("a").attr('href')
                 };
                 output.push(item);
 
@@ -273,14 +276,20 @@ function scrapeHybrid(url, page, baseurl, category, logo, brand, selectors) {
 }
 
 
-function insert(records, category, logo, brand, isMobile) {
-
+function insert(records, category, logo, brand, isMobile, buildImage) {
     var values = [];
     try {
         records.forEach(function (element, index) {
             var link = util.clean(element.link)
             if (isMobile) {
                 link = link.replace('m.', 'www.');
+            }
+            var image = util.clean(element.image);
+            if (buildImage && typeof element.image != 'undefined')
+            {
+              // Apply for Jabong only
+              image = JSON.parse(element.image);
+              image = image.base_path + "-catalog_s.jpg";
             }
             var price = 0;
             if (typeof element.priceAlt != 'undefined')
@@ -291,23 +300,30 @@ function insert(records, category, logo, brand, isMobile) {
               price = util.extractPrice(element.price);
             }
 
+            logger.info(util.clean(element.name) + ", " + price +  ", " + image + ", " + link);
 
-            if (typeof price != 'undefined')
+            if (typeof price !== 'undefined' && element.name !== "" && image !== "" && link !== "")
             {
-                values.push([1, logo, util.clean(element.name), '', category, brand, price, util.clean(element.image), link, '', '']);
+                values.push([1, logo, util.clean(element.name), '', category, brand, price, image, link, '', '']);
             }
         });
         if (values.length > 0) {
-            logger.info("Inserting: " + values.length + " Records");
             pool.getConnection(function (err, connection) {
                 var sql = "INSERT INTO products (m_id, m_logo, name, description, category, brand, price, image, url, size, color) VALUES ? ON DUPLICATE KEY UPDATE m_id=m_id, m_logo=m_logo, name=name, description=description, category=category, brand=brand, price=price, image=image, size=size, color=color ";
                 if (typeof connection != 'undefined') {
                     connection.query(sql, [values], function (err) {
-                        if (err);
+                        if (err) logger.error("Error connecting to database: ", err);
                         connection.release();
                     });
                 }
+                else {
+                  logger.error("Could not connect to database");
+                }
             });
+            logger.info("Inserting: " + values.length + " Records");
+        }
+        else {
+          logger.error("Could not insert records");
         }
     } catch (e) {
 

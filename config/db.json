@@ -1,7 +1,7 @@
 {
     "host": "localhost",
     "user": "root",
-    "password": "",
+    "password": "password",
     "database": "scrapper",
     "connectionLimit": 10
 }
