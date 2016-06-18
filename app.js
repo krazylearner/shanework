@@ -24,7 +24,22 @@ var configDir = path.join(__dirname, 'config');
 
 var args = process.argv.slice(2);
 
-var sourceName = args[0] || 'fabfurnish';
+var sourceName = args[0] || '';
+var verboseParam = args[1] || '';
+var isVerbose = false;
+
+if (sourceName === '')
+{
+  console.log("Missing parameter source name. Make sure you run it as follows 'node app.js <source name>'")
+  process.exit(1);
+}
+
+if (verboseParam === '-v')
+{
+  console.log("Running in verbose mode.");
+  isVerbose = true;
+}
+
 
 // Getting config from file
 var db = JSON.parse(fs.readFileSync(configDir + '/db.json', 'utf8'));
@@ -80,8 +95,8 @@ async.eachSeries(sources, function (source, callback) {
                     var js = JSON.parse(data);
                     var total = jselect.match(totalSelector, js);
                     //var total = js.list.products_total;
-                    logger.info("Scrapping: " + source.url);
-                    logger.info("Total products found: " + total);
+                    logger.info("Scraping source url: " + source.url);
+                    logger.info("Total products found: " + total + "\n");
                     for (var i = 0; i < total / totalPerPage; i++) {
                         scrapeJson(source.url, (i + 1), scrapper.baseurl, category, logo, brand, selectors);
                     }
@@ -100,8 +115,8 @@ async.eachSeries(sources, function (source, callback) {
                     total = util.extractNumber(data);
                   }
 
-                  logger.info("Scrapping: " + source.url);
-                  logger.info("Total products found: " + total);
+                  logger.info("Scraping source url: " + source.url);
+                  logger.info("Total products found: " + total + "\n");
                   scrapeHTML(source.url, 1, total, totalPerPage, scrapper.baseurl, category, logo, brand, selectors, buildImage, true);
                   callback(null);
               }
@@ -113,8 +128,8 @@ async.eachSeries(sources, function (source, callback) {
           parser(source.urlPage, totalSelector)( function (err, data) {
               if (!err) {
                   var total = util.extractNumber(data);
-                    logger.info("Scrapping: " + source.url);
-                    logger.info("Total products found: " + total);
+                    logger.info("Scraping source url: " + source.url);
+                    logger.info("Total products found: " + total + "\n");
                     scrapeHybrid(source.url, 1, scrapper.baseurl, category, logo, brand, selectors);
                     callback(null);
               }
@@ -131,9 +146,9 @@ async.eachSeries(sources, function (source, callback) {
             }]).paginate(paginate)(function (err, output) {
             if (err) logger.log('warn', err);
             if (typeof output !== 'undefined') {
-                logger.info("Scrapping: " + source.url);
+                logger.info("Scraping source: " + source.url);
+                logger.info("Scraping done: " + output.length + " records found");
                 insert(output, category, logo, brand, isMobile);
-                logger.info("Scrapping done: " + output.length + " records found");
                 callback(null)
             } else {
                 logger.info("Could not scrape webpage. Webpage might be unvailable, taking too long to respond or no more page available for dyanamic scrapping.");
@@ -160,8 +175,6 @@ function scrapeHTML(url, page, total, totalPerPage, baseurl, category, logo, bra
     if (page < (Math.ceil(total / totalPerPage)) || last){
 
       var targetUrl = url.replace('{{page}}', page);
-      logger.info(targetUrl);
-
       if (selectors.priceAlt == '')
       {
         selectors.priceAlt = selectors.price;
@@ -175,9 +188,10 @@ function scrapeHTML(url, page, total, totalPerPage, baseurl, category, logo, bra
           }])(function (err, output) {
           if (err) logger.log('warn', err);
           if (typeof output !== 'undefined') {
-              logger.info("Scrapping: " + url);
+              logger.info("Scraping: " + targetUrl);
+              logger.info("Scraping done: " + output.length + " records found");
               insert(output, category, logo, brand, isMobile, buildImage);
-              logger.info("Scrapping done: " + output.length + " records found");
+
               if (output.length > 0)
               {
                   if (output[0].link == lastLink)
@@ -210,7 +224,7 @@ function scrapeHTML(url, page, total, totalPerPage, baseurl, category, logo, bra
 function scrapeJson(url, page, baseurl, category, logo, brand, selectors) {
     var targetUrl = url.replace('{{page}}', page);
     request(targetUrl, function (err, response, data) {
-        logger.info("Scrapping: " + targetUrl)
+        logger.info("Scraping: " + targetUrl)
         if (!err) {
             var js = JSON.parse(data);
             var products = jselect.match(selectors.list, js);
@@ -226,8 +240,8 @@ function scrapeJson(url, page, baseurl, category, logo, brand, selectors) {
                 output.push(item);
             })
             if (typeof output !== 'undefined') {
+                logger.info("Scraping done: " + output.length + " records found");
                 insert(output, category, logo, brand);
-                logger.info("Scrapping done: " + output.length + " records found");
             } else {
                 logger.info("Could not scrape webpage. Webpage might be unvailable or taking too long to respond.");
             }
@@ -240,7 +254,7 @@ function scrapeHybrid(url, page, baseurl, category, logo, brand, selectors) {
   //for pepperfry only
     var targetUrl = url.replace('{{page}}', page);
     request(targetUrl, function (err, response, data) {
-        logger.info("Scrapping: " + targetUrl)
+        logger.info("Scraping: " + targetUrl)
         var output = [];
         if (!err) {
             var js = JSON.parse(data);
@@ -256,7 +270,7 @@ function scrapeHybrid(url, page, baseurl, category, logo, brand, selectors) {
                 var item = {
                     name: $(product).find(".card-body-title").text(),
                     image: $(product).find(".lazy").attr('data-src'),
-                    price: $(product).find(".card-body-price").text(),
+                    price: $(product).find(".pf-price > .card-body-price").text(),
                     link: $(product).find(".card-header").find("a").attr('href')
                 };
                 output.push(item);
@@ -266,8 +280,8 @@ function scrapeHybrid(url, page, baseurl, category, logo, brand, selectors) {
 
 
             if (typeof output !== 'undefined') {
+                logger.info("Scraping done: " + output.length + " records found");
                 insert(output, category, logo, brand);
-                logger.info("Scrapping done: " + output.length + " records found");
             } else {
                 logger.info("Could not scrape webpage. Webpage might be unvailable or taking too long to respond.");
             }
@@ -300,7 +314,10 @@ function insert(records, category, logo, brand, isMobile, buildImage) {
               price = util.extractPrice(element.price);
             }
 
-            logger.info(util.clean(element.name) + ", " + price +  ", " + image + ", " + link);
+            if(isVerbose)
+            {
+                logger.info(util.clean(element.name) + ", " + price +  ", " + image + ", " + link);
+            }
 
             if (typeof price !== 'undefined' && element.name !== "" && image !== "" && link !== "")
             {
@@ -320,7 +337,7 @@ function insert(records, category, logo, brand, isMobile, buildImage) {
                   logger.error("Could not connect to database");
                 }
             });
-            logger.info("Inserting: " + values.length + " Records");
+            logger.info("Inserting: " + values.length + " Records \n");
         }
         else {
           logger.error("Could not insert records");
